@@ -58,6 +58,19 @@ def answer_callback(callback_id: str, text: str = ""):
     return _post("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
 
 
+def get_file_url(file_id: str) -> str | None:
+    """Ссылка на скачивание голосового сообщения."""
+    data = _post("getFile", {"file_id": file_id})
+    if not data or not data.get("ok"):
+        return None
+    path = data["result"].get("file_path")
+    return f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{path}" if path else None
+
+
+def send_typing(chat_id: str | None = None):
+    _post("sendChatAction", {"chat_id": chat_id or TELEGRAM_CHAT_ID, "action": "typing"})
+
+
 def set_webhook(url: str):
     return _post("setWebhook", {"url": url, "allowed_updates": ["message", "callback_query"]})
 

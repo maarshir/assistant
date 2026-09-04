@@ -89,6 +89,17 @@ def context_text(session: Session, day: Day) -> str:
     return "\n".join(lines)
 
 
+def last_seen(session: Session) -> datetime | None:
+    """Когда Иван последний раз что-то писал или нажимал."""
+    row = (
+        session.query(Message)
+        .filter(Message.role == "ivan")
+        .order_by(Message.at.desc())
+        .first()
+    )
+    return row.at if row else None
+
+
 def history(session: Session, limit: int = 4) -> list[dict]:
     rows = (
         session.query(Message).order_by(Message.at.desc()).limit(limit).all()
@@ -97,6 +108,67 @@ def history(session: Session, limit: int = 4) -> list[dict]:
         {"role": "assistant" if m.role == "kira" else "user", "content": m.text}
         for m in reversed(rows)
     ]
+
+
+SEARCH_WORDS = (
+    "погода", "погоду", "новост", "курс ", "сколько стоит", "цена ",
+    "найди", "погугли", "посмотри в интернет", "загугли", "расписание",
+    "во сколько работает", "режим работы", "кто такой", "что такое",
+)
+SEARCH_MODEL = "groq/compound"
+
+
+def needs_web(text: str) -> bool:
+    low = text.lower()
+    return any(w in low for w in SEARCH_WORDS)
+
+
+def transcribe(file_url: str) -> str | None:
+    """Расшифровка голосового сообщения."""
+    if not LLM_API_KEY:
+        return None
+    try:
+        audio = httpx.get(file_url, timeout=30).content
+        r = httpx.post(
+            f"{LLM_BASE_URL}/audio/transcriptions",
+            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+            files={"file": ("voice.ogg", audio, "audio/ogg")},
+            data={"model": "whisper-large-v3-turbo", "language": "ru"},
+            timeout=60,
+        )
+        if r.status_code != 200:
+            print(f"[Кира] расшифровка не прошла: {r.status_code} {r.text[:120]}")
+            return None
+        return (r.json().get("text") or "").strip() or None
+    except httpx.HTTPError as e:
+        print(f"[Кира] расшифровка, сеть: {type(e).__name__}")
+        return None
+
+
+def search_web(question: str, character: str) -> str | None:
+    """Вопросы про свежие данные уходят модели с доступом в интернет."""
+    if not LLM_API_KEY:
+        return None
+    try:
+        r = httpx.post(
+            f"{LLM_BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+            json={
+                "model": SEARCH_MODEL,
+                "messages": [
+                    {"role": "system", "content": character + "\n\nОтвечай обычным текстом, коротко, без списков."},
+                    {"role": "user", "content": question},
+                ],
+                "temperature": 0.5,
+                "max_tokens": 400,
+            },
+            timeout=45,
+        )
+        if r.status_code != 200:
+            return None
+        return (r.json()["choices"][0]["message"]["content"] or "").strip() or None
+    except (httpx.HTTPError, KeyError, ValueError):
+        return None
 
 
 def extract_json(raw: str) -> dict | None:
@@ -170,6 +242,13 @@ def ask(session: Session, text: str, day_getter, source: str = "telegram") -> st
     day = day_getter(session)
     session.add(Message(role="ivan", text=text, source=source))
     session.commit()
+
+    if needs_web(text):
+        found = search_web(text, CHARACTER)
+        if found:
+            session.add(Message(role="kira", text=found, source=source))
+            session.commit()
+            return found
 
     messages = [
         {"role": "system", "content": CHARACTER + "\n\n" + SCHEMA},

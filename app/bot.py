@@ -40,6 +40,22 @@ def water_markup() -> dict:
     ])
 
 
+def water_done(day: Day, profile: Profile) -> str:
+    """Короткая отписка вместо кнопок после нажатия."""
+    import random
+
+    target = profile.water_target_l or 2.5
+    left = round(target - day.water_l, 2)
+    if left <= 0:
+        return f"Записала. {day.water_l} л, норма взята."
+    lines = [
+        f"Записала. {day.water_l} л, осталось {left}.",
+        f"Есть. Уже {day.water_l} л из {target}.",
+        f"Отметила: {day.water_l} л. До нормы {left}.",
+    ]
+    return random.choice(lines)
+
+
 def water_text(day: Day, profile: Profile) -> str:
     target = profile.water_target_l or 2.5
     left = max(0, round(target - day.water_l, 2))
@@ -68,11 +84,15 @@ def handle_callback(session: Session, query: dict, day_getter) -> None:
     action, _, value = data.partition(":")
 
     if action == "water":
-        if value != "skip":
-            day.water_l = round(max(0.0, day.water_l + int(value) / 1000), 2)
-            session.commit()
+        if value == "skip":
+            tg.answer_callback(query["id"])
+            tg.edit(chat_id, message_id, "Ладно, потом.")
+            return
+
+        day.water_l = round(max(0.0, day.water_l + int(value) / 1000), 2)
+        session.commit()
         tg.answer_callback(query["id"])
-        tg.edit(chat_id, message_id, water_text(day, profile), water_markup())
+        tg.edit(chat_id, message_id, water_done(day, profile))
         return
 
     if action == "gym":
@@ -131,7 +151,19 @@ def handle_callback(session: Session, query: dict, day_getter) -> None:
 
 
 def handle_message(session: Session, message: dict, day_getter) -> None:
+    from app import brain
+
     text = (message.get("text") or "").strip()
+
+    voice = message.get("voice") or message.get("audio") or message.get("video_note")
+    if voice and not text:
+        tg.send_typing()
+        url = tg.get_file_url(voice.get("file_id", ""))
+        text = brain.transcribe(url) if url else None
+        if not text:
+            tg.send("Не разобрала голосовое. Напиши текстом.")
+            return
+
     if not text:
         return
 
@@ -159,6 +191,14 @@ def handle_message(session: Session, message: dict, day_getter) -> None:
         session.commit()
         tg.send(f"Записал: {day.study_min} мин")
         next_step(session, day)
+        return
+
+    if state.awaiting == "morning":
+        set_state(session)
+        if day.wake_at is None:
+            day.wake_at = datetime.now(TZ).time().replace(second=0, microsecond=0)
+            session.commit()
+        tg.send(brain.ask(session, text, day_getter, source="telegram"))
         return
 
     if state.awaiting == "wake":
@@ -199,8 +239,7 @@ def handle_message(session: Session, message: dict, day_getter) -> None:
         set_state(session)
         return
 
-    from app import brain
-
+    tg.send_typing()
     tg.send(brain.ask(session, text, day_getter, source="telegram"))
 
 
@@ -322,9 +361,27 @@ def send_bedtime(session: Session, profile: Profile) -> None:
     )
 
 
-def send_morning(session: Session) -> None:
-    set_state(session, step="wake", awaiting="wake")
-    tg.send("Доброе. Во сколько встал?")
+MORNING_LINES = [
+    "Доброе. Как спалось?",
+    "Утро. Ты живой там?",
+    "Проснулся? Рассказывай, как ночь.",
+    "Доброе утро. Готов к дню или ещё не очень?",
+]
+
+LATE_MORNING_LINES = [
+    "Ну ты и поспал. Проспал или так и было задумано?",
+    "Утро уже кончается. Только встал?",
+    "Долго. Что случилось, поздно лёг?",
+]
+
+
+def send_morning(session: Session, late: bool = False) -> None:
+    """Никаких кнопок: любой твой ответ означает, что ты встал."""
+    import random
+
+    set_state(session, step="morning", awaiting="morning")
+    lines = LATE_MORNING_LINES if late else MORNING_LINES
+    tg.send(random.choice(lines))
 
 
 def now_local() -> datetime:
