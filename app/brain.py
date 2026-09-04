@@ -1,6 +1,7 @@
 """Кира. Характер, разговор и разбор свободных фраз в действия."""
 
 import json
+import os
 import time as time_module
 from datetime import date, datetime, time, timedelta
 
@@ -115,7 +116,8 @@ SEARCH_WORDS = (
     "найди", "погугли", "посмотри в интернет", "загугли", "расписание",
     "во сколько работает", "режим работы", "кто такой", "что такое",
 )
-SEARCH_MODEL = "groq/compound"
+SEARCH_MODEL = os.getenv("SEARCH_MODEL", "groq/compound")
+CITY = os.getenv("CITY", "Москва")
 
 
 def needs_web(text: str) -> bool:
@@ -149,6 +151,13 @@ def search_web(question: str, character: str) -> str | None:
     """Вопросы про свежие данные уходят модели с доступом в интернет."""
     if not LLM_API_KEY:
         return None
+    today = datetime.now(TZ).strftime("%d.%m.%Y, %H:%M")
+    system = (
+        character
+        + f"\n\nСейчас {today}. Иван находится в городе {CITY}. "
+        "Если в вопросе не назван город, отвечай про этот. "
+        "Отвечай обычным текстом, коротко, без списков и без ссылок."
+    )
     try:
         r = httpx.post(
             f"{LLM_BASE_URL}/chat/completions",
@@ -156,7 +165,7 @@ def search_web(question: str, character: str) -> str | None:
             json={
                 "model": SEARCH_MODEL,
                 "messages": [
-                    {"role": "system", "content": character + "\n\nОтвечай обычным текстом, коротко, без списков."},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": question},
                 ],
                 "temperature": 0.5,
@@ -165,9 +174,12 @@ def search_web(question: str, character: str) -> str | None:
             timeout=45,
         )
         if r.status_code != 200:
+            print(f"[Кира] поиск не прошёл: {r.status_code} {r.text[:200]}")
             return None
-        return (r.json()["choices"][0]["message"]["content"] or "").strip() or None
-    except (httpx.HTTPError, KeyError, ValueError):
+        text = (r.json()["choices"][0]["message"]["content"] or "").strip()
+        return text or None
+    except (httpx.HTTPError, KeyError, ValueError) as e:
+        print(f"[Кира] поиск, сбой: {type(e).__name__}")
         return None
 
 
@@ -249,6 +261,7 @@ def ask(session: Session, text: str, day_getter, source: str = "telegram") -> st
             session.add(Message(role="kira", text=found, source=source))
             session.commit()
             return found
+        return "Не смогла посмотреть в интернете, поиск не отозвался. Попробуй ещё раз."
 
     messages = [
         {"role": "system", "content": CHARACTER + "\n\n" + SCHEMA},
