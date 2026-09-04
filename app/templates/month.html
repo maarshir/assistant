@@ -1,0 +1,49 @@
+{% set title = title_month %}
+{% include "_head.html" %}
+
+  <header class="head">
+    <h1>{{ title_month|capitalize }}</h1>
+    <p>{{ total.days }} {{ "день" if total.days == 1 else "дней" }} позади{% if late_nights %}, {{ late_nights }} с недосыпом{% endif %}</p>
+  </header>
+
+  <div class="hero">
+    <div class="cell lead">
+      <div class="big {% if not total.sleep %}none{% endif %}">{% if total.sleep %}{{ total.sleep }}<span class="unit">ч</span>{% else %}—{% endif %}</div>
+      <div class="cap">сон в среднем</div>
+    </div>
+    <div class="cell">
+      <div class="big">{{ total.gym }}<span class="unit">раз</span></div>
+      <div class="cap">был в зале</div>
+    </div>
+    <div class="cell">
+      <div class="big {% if not total.kcal %}none{% endif %}">{% if total.kcal %}{{ total.kcal|round|int }}{% else %}—{% endif %}</div>
+      <div class="cap">ккал в день</div>
+    </div>
+  </div>
+
+  <div class="line"><span class="k">Вода в среднем</span><span class="v {% if not total.water %}none{% endif %}">{% if total.water %}{{ total.water }} <span class="sub">л</span>{% else %}нет данных{% endif %}</span></div>
+  <div class="line"><span class="k">Потрачено за месяц</span><span class="v">{{ total.spent }} <span class="sub">₽</span></span></div>
+  <div class="line"><span class="k">Учёба за месяц</span><span class="v">{{ total.study }} <span class="sub">мин</span></span></div>
+  {% if best %}
+  <div class="line"><span class="k">Лучший день</span><span class="v">{{ best.label }}{% if best.sleep %} <span class="sub">сон {{ best.sleep }} ч</span>{% endif %}</span></div>
+  {% endif %}
+
+  <p class="section">По дням</p>
+
+  <div class="grid-head">
+    <span></span><span class="n">сон</span><span class="n">вода</span><span class="n">ккал</span><span></span>
+  </div>
+
+  {% for row in rows %}
+  <div class="dayrow {% if loop.first %}now{% endif %} {% if row.empty %}blank{% endif %}">
+    <span class="d">{{ row.label }}</span>
+    <span class="n {% if not row.sleep %}none{% endif %}">{{ row.sleep if row.sleep else "—" }}</span>
+    <span class="n {% if not row.water %}none{% endif %}">{{ row.water if row.water else "—" }}</span>
+    <span class="n {% if not row.kcal %}none{% endif %}">{{ row.kcal if row.kcal else "—" }}</span>
+    <span class="mark {% if row.gym %}yes{% endif %}">{% if row.gym %}&#10003;{% else %}·{% endif %}</span>
+  </div>
+  {% endfor %}
+
+{% include "_nav.html" %}
+</body>
+</html>

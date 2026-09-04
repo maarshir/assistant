@@ -1,0 +1,55 @@
+{% set title = "Еда" %}
+{% include "_head.html" %}
+
+  <header class="head">
+    <h1>Еда</h1>
+    <p>{% if groups %}Сегодня {{ groups[0].kcal }} ккал{% if profile.calorie_target %} из {{ profile.calorie_target }}{% endif %}{% else %}История пуста{% endif %}</p>
+  </header>
+
+  {% if groups %}
+  <div class="hero">
+    <div class="cell lead">
+      <div class="big">{{ groups[0].kcal }}</div>
+      <div class="cap">ккал сегодня</div>
+    </div>
+    <div class="cell">
+      <div class="big">{{ groups[0].protein }}<span class="unit">г</span></div>
+      <div class="cap">белка</div>
+    </div>
+    <div class="cell">
+      <div class="big">{{ groups[0].meals|length }}</div>
+      <div class="cap">приёма пищи</div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not groups %}
+  <p class="empty-note">Напиши Кире, что ел, и здесь появится история. Например: съел омлет из трёх яиц и тарелку гречки.</p>
+  {% endif %}
+
+  {% for group in groups %}
+  <div class="daycap {% if loop.first %}now{% endif %}">
+    <span class="when">{{ group.label }}</span>
+    <span class="sum">{{ group.kcal }} ккал, белок {{ group.protein }}</span>
+  </div>
+  {% for meal in group.meals %}
+  <div class="item">
+    <span>{{ meal.name }}</span>
+    <span class="qty">{{ meal.grams|round|int }} г · {{ meal.kcal|round|int }}</span>
+  </div>
+  {% endfor %}
+  {% endfor %}
+
+  {% if dishes %}
+  <p class="section">Твои блюда, на 100 граммов</p>
+  {% for dish in dishes %}
+  <div class="item">
+    <span>{{ dish.name }}</span>
+    <span class="qty">{{ dish.kcal_100|round|int }} ккал · белок {{ dish.protein_100|round|int }}</span>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+{% include "_nav.html" %}
+</body>
+</html>

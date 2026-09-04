@@ -1,0 +1,89 @@
+{% set title = "Сегодня" %}
+{% include "_head.html" %}
+
+  <header class="head">
+    <h1>Сегодня</h1>
+    <p>{{ date_label }}</p>
+  </header>
+
+  <div class="cards">
+
+    <div class="card food">
+      <div class="ringbox">
+        <svg class="ring" width="96" height="96" viewBox="0 0 96 96">
+          <circle class="track" cx="48" cy="48" r="40" fill="none" stroke-width="9"/>
+          <circle class="fill" cx="48" cy="48" r="40" fill="none" stroke-width="9"
+                  stroke-dasharray="{{ kcal_ratio }} 251" transform="rotate(-90 48 48)"/>
+          <text class="mid" x="48" y="46" text-anchor="middle">{{ kcal }}</text>
+          <text class="sub" x="48" y="62" text-anchor="middle">ккал</text>
+        </svg>
+        <div class="side">
+          <div class="label">Еда за день</div>
+          <div class="mini"><span class="k">Белок</span><span class="v">{{ protein }} г</span></div>
+          <div class="mini"><span class="k">Цель</span><span class="v">{% if profile.calorie_target %}{{ profile.calorie_target }}{% else %}не задана{% endif %}</span></div>
+          <div class="mini"><span class="k">Приёмов</span><span class="v">{{ day.meals|length }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <div class="card water">
+        <div class="label">Вода</div>
+        <div class="value">{{ day.water_l }}<span class="u">л</span></div>
+        <div class="dots">
+          {% for i in range(10) %}
+          <span class="dot {% if day.water_l >= (i + 1) * 0.25 %}on{% endif %}"></span>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card gym">
+        <div class="label">Зал</div>
+        <div class="value">{% if day.gym %}Был{% elif day.gym is sameas false %}Нет{% else %}—{% endif %}</div>
+        <div class="hint">
+          {% if day.gym %}<span class="badge">сделано</span>
+          {% elif day.gym is sameas false %}<span class="badge off">пропуск</span>
+          {% else %}пока не отмечено{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Сон прошлой ночью</div>
+      <div class="value">{% if day.sleep_hours %}{{ day.sleep_hours }}<span class="u">ч</span>{% else %}—{% endif %}</div>
+      <div class="hint">
+        {% if day.sleep_at and day.wake_at %}лёг в {{ day.sleep_at.strftime("%H:%M") }}, встал в {{ day.wake_at.strftime("%H:%M") }}
+        {% else %}цель: отбой в {{ profile.sleep_target.strftime("%H:%M") }}{% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Сон за неделю</div>
+      <div class="bars">
+        {% for row in week_rows %}
+        <div class="col {% if loop.last %}now{% elif row.sleep and row.sleep >= 7 %}good{% endif %}">
+          <i style="height: {{ ((row.sleep or 0) / 10 * 100)|round|int }}%"></i>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="barlabels">
+        {% for row in week_rows %}<span>{{ row.label.split(" ")[0] }}</span>{% endfor %}
+      </div>
+    </div>
+
+    <div class="pair">
+      <div class="card">
+        <div class="label">Траты</div>
+        <div class="value">{{ day.spent|round|int }}<span class="u">₽</span></div>
+      </div>
+      <div class="card">
+        <div class="label">Учёба</div>
+        <div class="value">{{ day.study_min }}<span class="u">мин</span></div>
+      </div>
+    </div>
+
+  </div>
+
+{% include "_nav.html" %}
+</body>
+</html>
