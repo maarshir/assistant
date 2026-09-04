@@ -87,6 +87,42 @@ def login(password: str = Form(...)):
     return response
 
 
+@app.post("/api/tg-auth")
+async def tg_auth(request: Request):
+    """Вход из окна внутри Телеграма: проверяем подпись вместо пароля."""
+    import hashlib
+    import hmac
+    from urllib.parse import parse_qsl
+
+    from app.config import TELEGRAM_TOKEN
+
+    body = await request.json()
+    init_data = body.get("init_data", "")
+    if not init_data or not TELEGRAM_TOKEN:
+        return JSONResponse({"error": "no data"}, status_code=400)
+
+    pairs = dict(parse_qsl(init_data, strict_parsing=True))
+    their_hash = pairs.pop("hash", "")
+    check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
+
+    secret = hmac.new(b"WebAppData", TELEGRAM_TOKEN.encode(), hashlib.sha256).digest()
+    mine = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(mine, their_hash):
+        return JSONResponse({"error": "bad signature"}, status_code=403)
+
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        COOKIE,
+        signer.dumps("ok"),
+        max_age=60 * 60 * 24 * 365,
+        httponly=True,
+        samesite="none",
+        secure=True,
+    )
+    return response
+
+
 @app.get("/logout")
 def logout():
     response = RedirectResponse("/login", status_code=303)
