@@ -11,6 +11,7 @@ from app.models import Day, Observation, Profile, ReminderLog
 
 WATER_FROM = 10
 WATER_TO = 21
+WATER_KINDS = [f"water_h{h}" for h in range(WATER_FROM, WATER_TO + 1)]
 
 
 def already_sent(session: Session, on: date, kind: str) -> bool:
@@ -33,6 +34,24 @@ def due(now: datetime, target: time, window_min: int = 20) -> bool:
         hour=target.hour, minute=target.minute, second=0, microsecond=0
     )
     return timedelta(0) <= (now - target_dt) <= timedelta(minutes=window_min)
+
+
+def water_unanswered(session: Session, on: date) -> bool:
+    """На последнее напоминание о воде так и не ответили.
+
+    Ответом считается любое сообщение после отправки: отметка воды
+    всегда приходит сообщением, так что одной проверки достаточно.
+    """
+    last = (
+        session.query(ReminderLog)
+        .filter(ReminderLog.date == on, ReminderLog.kind.in_(WATER_KINDS))
+        .order_by(ReminderLog.at.desc())
+        .first()
+    )
+    if not last:
+        return False
+    seen = brain.last_seen(session)
+    return not (seen and seen > last.at)
 
 
 def tick(session: Session, day_getter) -> list[str]:
@@ -64,11 +83,17 @@ def tick(session: Session, day_getter) -> list[str]:
             mark_sent(session, today, "morning_late")
             done.append("morning_late")
 
-    # Вода, раз в час в своём окне
+    # Вода, раз в час в своём окне.
+    # Если на прошлое напоминание не ответили, замолкаем до вечера.
     if WATER_FROM <= now.hour <= WATER_TO and now.minute < 20:
-        kind = f"water_{now.hour}"
+        kind = f"water_h{now.hour}"
         target = profile.water_target_l or 2.5
-        if day.water_l < target and not already_sent(session, today, kind) and not just_talked:
+        if (
+            day.water_l < target
+            and not already_sent(session, today, kind)
+            and not just_talked
+            and not water_unanswered(session, today)
+        ):
             bot.send_water(session, day)
             mark_sent(session, today, kind)
             done.append(kind)
@@ -86,6 +111,13 @@ def tick(session: Session, day_getter) -> list[str]:
         bot.start_evening(session, day)
         mark_sent(session, today, "evening")
         done.append("evening")
+
+    # Вечером один раз напоминаем о воде, если так и не отмечали
+    if due(now, profile.evening_check_at) and not already_sent(session, today, "water_summary"):
+        if day.water_l == 0 and already_water_asked(session, today):
+            bot.tg.send("По воде сегодня ни одной отметки. Сколько вышло по факту?")
+            mark_sent(session, today, "water_summary")
+            done.append("water_summary")
 
     # Отбой, за полчаса
     bed = profile.sleep_target
@@ -106,6 +138,16 @@ def tick(session: Session, day_getter) -> list[str]:
             done.append("pattern")
 
     return done
+
+
+def already_water_asked(session: Session, on: date) -> bool:
+    """Было ли сегодня хотя бы одно напоминание о воде."""
+    return (
+        session.query(ReminderLog)
+        .filter(ReminderLog.date == on, ReminderLog.kind.in_(WATER_KINDS))
+        .first()
+        is not None
+    )
 
 
 def find_pattern(session: Session, today: date) -> str | None:
