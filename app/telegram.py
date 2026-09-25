@@ -2,7 +2,7 @@
 
 import httpx
 
-from app.config import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN
+from app.config import TELEGRAM_CHAT_ID, TELEGRAM_TOKEN, TELEGRAM_WEBHOOK_SECRET
 
 API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
@@ -72,7 +72,10 @@ def send_typing(chat_id: str | None = None):
 
 
 def set_webhook(url: str):
-    return _post("setWebhook", {"url": url, "allowed_updates": ["message", "callback_query"]})
+    payload = {"url": url, "allowed_updates": ["message", "callback_query"]}
+    if TELEGRAM_WEBHOOK_SECRET:
+        payload["secret_token"] = TELEGRAM_WEBHOOK_SECRET
+    return _post("setWebhook", payload)
 
 
 def delete_webhook():
