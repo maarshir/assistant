@@ -8,11 +8,19 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy.orm import Session
 
-from app.config import APP_PASSWORD, SECRET_KEY, TZ
+from app.config import (
+    APP_PASSWORD,
+    SECRET_KEY,
+    TELEGRAM_CHAT_ID,
+    TELEGRAM_TOKEN,
+    TELEGRAM_WEBHOOK_SECRET,
+    TZ,
+)
 from app.db import get_profile, get_session, init_db
 from app.models import Day, Profile
 from app import bot as botlogic
 from app import reminders
+from app import security
 from app import stats
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -89,27 +97,23 @@ def login(password: str = Form(...)):
 
 @app.post("/api/tg-auth")
 async def tg_auth(request: Request):
-    """Вход из окна внутри Телеграма: проверяем подпись вместо пароля."""
-    import hashlib
-    import hmac
-    from urllib.parse import parse_qsl
-
-    from app.config import TELEGRAM_TOKEN
-
-    body = await request.json()
-    init_data = body.get("init_data", "")
+    """Вход из окна внутри Телеграма: проверяем подпись и что это владелец."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "no data"}, status_code=400)
+    init_data = body.get("init_data", "") if isinstance(body, dict) else ""
     if not init_data or not TELEGRAM_TOKEN:
         return JSONResponse({"error": "no data"}, status_code=400)
 
-    pairs = dict(parse_qsl(init_data, strict_parsing=True))
-    their_hash = pairs.pop("hash", "")
-    check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
-
-    secret = hmac.new(b"WebAppData", TELEGRAM_TOKEN.encode(), hashlib.sha256).digest()
-    mine = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
-
-    if not hmac.compare_digest(mine, their_hash):
+    fields = security.check_init_data(init_data, TELEGRAM_TOKEN)
+    if fields is None:
         return JSONResponse({"error": "bad signature"}, status_code=403)
+
+    # Подпись доказывает только, что данные пришли от Телеграма.
+    # Открыть окно бота может кто угодно, поэтому сверяем номер с владельцем.
+    if not security.same_id(security.init_data_user_id(fields), TELEGRAM_CHAT_ID):
+        return JSONResponse({"error": "not owner"}, status_code=403)
 
     response = JSONResponse({"ok": True})
     response.set_cookie(
@@ -266,6 +270,9 @@ def food(request: Request, session: Session = Depends(get_session)):
 @app.post("/api/telegram/webhook")
 async def telegram_webhook(request: Request, session: Session = Depends(get_session)):
     """Сюда Телеграм присылает каждое сообщение и нажатие кнопки."""
+    header = request.headers.get("x-telegram-bot-api-secret-token")
+    if not security.webhook_secret_ok(header, TELEGRAM_WEBHOOK_SECRET):
+        return JSONResponse({"error": "auth"}, status_code=401)
     update = await request.json()
     botlogic.handle_update(session, update, get_day)
     return {"ok": True}
