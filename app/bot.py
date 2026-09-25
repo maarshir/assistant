@@ -5,8 +5,9 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app import telegram as tg
-from app.config import TZ
+from app.config import TELEGRAM_CHAT_ID, TZ
 from app.models import BotState, Day, Observation, Profile
+from app.security import is_owner_update, is_start_command
 
 GLASS = 0.25
 BOTTLE = 0.5
@@ -68,6 +69,13 @@ def water_text(day: Day, profile: Profile) -> str:
 
 
 def handle_update(session: Session, update: dict, day_getter) -> None:
+    if not is_owner_update(update, TELEGRAM_CHAT_ID):
+        # Чужие сообщения молча игнорируем. Исключение одно: пока номер
+        # владельца не настроен, на /start бот подсказывает номер чата.
+        if not TELEGRAM_CHAT_ID and is_start_command(update):
+            send_chat_id(update["message"])
+        return
+
     if "callback_query" in update:
         handle_callback(session, update["callback_query"], day_getter)
     elif "message" in update:
@@ -168,12 +176,7 @@ def handle_message(session: Session, message: dict, day_getter) -> None:
         return
 
     if text.startswith("/start"):
-        chat_id = message["chat"]["id"]
-        tg.send(
-            "На связи. Твой номер чата: <code>%s</code>\n"
-            "Впиши его в настройки, и я начну напоминать." % chat_id,
-            chat_id=str(chat_id),
-        )
+        send_chat_id(message)
         return
 
     state = get_state(session)
@@ -241,6 +244,15 @@ def handle_message(session: Session, message: dict, day_getter) -> None:
 
     tg.send_typing()
     tg.send(brain.ask(session, text, day_getter, source="telegram"))
+
+
+def send_chat_id(message: dict) -> None:
+    chat_id = message["chat"]["id"]
+    tg.send(
+        "На связи. Твой номер чата: <code>%s</code>\n"
+        "Впиши его в настройки, и я начну напоминать." % chat_id,
+        chat_id=str(chat_id),
+    )
 
 
 def to_number(text: str) -> float:
